@@ -1,6 +1,9 @@
 import logging
 
 from livekit.agents import AutoSubscribe, JobContext, WorkerOptions, WorkerType, cli
+from dotenv import load_dotenv
+load_dotenv()
+
 
 logger = logging.getLogger("my-worker")
 logger.setLevel(logging.INFO)
