@@ -1,5 +1,29 @@
 # livekit-plugins-cartesia
 
+## 0.4.7
+
+### Patch Changes
+
+- improved TTFB metrics for streaming TTS - [#1431](https://github.com/livekit/agents/pull/1431) ([@davidzhao](https://github.com/davidzhao))
+
+## 0.4.6
+
+### Patch Changes
+
+- update Cartesia plugin default model and voice id - [#1346](https://github.com/livekit/agents/pull/1346) ([@noahlt](https://github.com/noahlt))
+
+## 0.4.5
+
+### Patch Changes
+
+- fix release - [#1176](https://github.com/livekit/agents/pull/1176) ([@theomonnom](https://github.com/theomonnom))
+
+## 0.4.4
+
+### Patch Changes
+
+- feat: tts retry & tts.FallbackAdapter - [#1074](https://github.com/livekit/agents/pull/1074) ([@theomonnom](https://github.com/theomonnom))
+
 ## 0.4.3
 
 ### Patch Changes

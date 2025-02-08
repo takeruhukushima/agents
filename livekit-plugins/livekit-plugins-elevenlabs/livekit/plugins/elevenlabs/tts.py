@@ -25,7 +25,9 @@ from typing import Any, List, Literal
 import aiohttp
 from livekit import rtc
 from livekit.agents import (
+    DEFAULT_API_CONNECT_OPTIONS,
     APIConnectionError,
+    APIConnectOptions,
     APIStatusError,
     APITimeoutError,
     tokenize,
@@ -102,7 +104,7 @@ class TTS(tts.TTS):
         self,
         *,
         voice: Voice = DEFAULT_VOICE,
-        model: TTSModels | str = "eleven_turbo_v2_5",
+        model: TTSModels | str = "eleven_flash_v2_5",
         api_key: str | None = None,
         base_url: str | None = None,
         encoding: TTSEncoding = "mp3_22050_32",
@@ -187,34 +189,61 @@ class TTS(tts.TTS):
         *,
         voice: Voice = DEFAULT_VOICE,
         model: TTSModels | str = "eleven_turbo_v2_5",
+        language: str | None = None,
     ) -> None:
         """
         Args:
             voice (Voice): Voice configuration. Defaults to `DEFAULT_VOICE`.
             model (TTSModels | str): TTS model to use. Defaults to "eleven_turbo_v2_5".
+            language (str | None): Language code for the TTS model. Optional.
         """
         self._opts.model = model or self._opts.model
         self._opts.voice = voice or self._opts.voice
+        self._opts.language = language or self._opts.language
 
-    def synthesize(self, text: str) -> "ChunkedStream":
-        return ChunkedStream(self, text, self._opts, self._ensure_session())
+    def synthesize(
+        self,
+        text: str,
+        *,
+        conn_options: APIConnectOptions = DEFAULT_API_CONNECT_OPTIONS,
+    ) -> "ChunkedStream":
+        return ChunkedStream(
+            tts=self,
+            input_text=text,
+            conn_options=conn_options,
+            opts=self._opts,
+            session=self._ensure_session(),
+        )
 
-    def stream(self) -> "SynthesizeStream":
-        return SynthesizeStream(self, self._ensure_session(), self._opts)
+    def stream(
+        self, *, conn_options: APIConnectOptions = DEFAULT_API_CONNECT_OPTIONS
+    ) -> "SynthesizeStream":
+        return SynthesizeStream(
+            tts=self,
+            conn_options=conn_options,
+            opts=self._opts,
+            session=self._ensure_session(),
+        )
 
 
 class ChunkedStream(tts.ChunkedStream):
     """Synthesize using the chunked api endpoint"""
 
     def __init__(
-        self, tts: TTS, text: str, opts: _TTSOptions, session: aiohttp.ClientSession
+        self,
+        *,
+        tts: TTS,
+        input_text: str,
+        opts: _TTSOptions,
+        conn_options: APIConnectOptions,
+        session: aiohttp.ClientSession,
     ) -> None:
-        super().__init__(tts, text)
+        super().__init__(tts=tts, input_text=input_text, conn_options=conn_options)
         self._opts, self._session = opts, session
         if _encoding_from_format(self._opts.encoding) == "mp3":
             self._mp3_decoder = utils.codecs.Mp3StreamDecoder()
 
-    async def _main_task(self) -> None:
+    async def _run(self) -> None:
         request_id = utils.shortuuid()
         bstream = utils.audio.AudioByteStream(
             sample_rate=self._opts.sample_rate, num_channels=1
@@ -286,16 +315,17 @@ class SynthesizeStream(tts.SynthesizeStream):
 
     def __init__(
         self,
+        *,
         tts: TTS,
         session: aiohttp.ClientSession,
+        conn_options: APIConnectOptions,
         opts: _TTSOptions,
     ):
-        super().__init__(tts)
+        super().__init__(tts=tts, conn_options=conn_options)
         self._opts, self._session = opts, session
         self._mp3_decoder = utils.codecs.Mp3StreamDecoder()
 
-    @utils.log_exceptions(logger=logger)
-    async def _main_task(self) -> None:
+    async def _run(self) -> None:
         self._segments_ch = utils.aio.Chan[tokenize.WordStream]()
 
         @utils.log_exceptions(logger=logger)
@@ -401,6 +431,7 @@ class SynthesizeStream(tts.SynthesizeStream):
                     text=f"{text} ",  # must always end with a space
                     try_trigger_generation=False,
                 )
+                self._mark_started()
                 await ws_conn.send_str(json.dumps(data_pkt))
 
             if xml_content:
@@ -442,8 +473,9 @@ class SynthesizeStream(tts.SynthesizeStream):
                     aiohttp.WSMsgType.CLOSING,
                 ):
                     if not eos_sent:
-                        raise Exception(
-                            "11labs connection closed unexpectedly, not all tokens have been consumed"
+                        raise APIStatusError(
+                            "11labs connection closed unexpectedly, not all tokens have been consumed",
+                            request_id=request_id,
                         )
                     return
 
